@@ -1,0 +1,229 @@
+---
+---
+---
+
+# Analyse des ventes du site internet
+
+*Importation des exports transmis par Laurent et Sylvie*
+
+```{r echo=TRUE}
+setwd("~/Data")
+erp <- read.csv2("erp.csv")
+liaison <- read.csv2("liaison.csv")
+web <- read.csv2("web.csv")
+```
+
+#### Rapprochement des exports erp et web
+
+Commençons par tester l'unicité de notre clé ("product_id") avant de merger nos exports erp et liaison.
+
+```{r echo=TRUE}
+sum(duplicated(erp$product_id))
+sum(duplicated(liaison$product_id))
+```
+
+Vérifions également si nous avons bien les mêmes product_id dans erp et liaison :
+
+```{r echo=TRUE}
+product_id1 <- unique(erp$product_id)
+product_id2 <- unique(liaison$product_id) 
+product_id3 <- intersect(product_id2, product_id1)
+```
+
+Nous n'avons aucun doublon et nous avons bien les mêmes product_id dans erp et liaison donc poursuivons avec la jointure :
+
+```{r echo=TRUE}
+erp_li <- merge(erp,liaison)
+```
+
+*Nous avons opté pour une jointure interne dans la mesure où ces 2 exports ont la même structure et le même nombre de lignes.*
+
+Créons une copie de "web".
+
+```{r echo=TRUE}
+web2 <- web
+```
+
+Interrogeons la base pour obtenir les noms des colonnes du dataframe.
+
+```{r echo=TRUE}
+names(web2)
+```
+
+Pour faciliter la jointure, nous renommons la colonne "sku" afin de la faire correspondre à la colonne "id_web".
+
+```{r echo=TRUE}
+names(web2)[names(web2) == 'sku'] <- 'id_web'
+```
+
+*Vérifions si le nom a bien été modifié :*
+
+```{r echo=TRUE}
+names(web2)
+```
+
+*Tout est ok.*
+
+Sélectionnons les lignes qui correspondent aux produits.
+
+```{r echo=TRUE}
+web2 <- subset(web2, web2$post_type == "product")
+```
+
+Assurons-nous de ne pas avoir de doublon au niveau des id_web de web2 :
+
+```{r echo=TRUE}
+sum(duplicated(web2$id_web))
+```
+
+*Nous avons apparemment un doublon, que nous allons localiser et supprimer :*
+
+```{r echo=TRUE}
+doublon <- which(duplicated(web2$id_web))
+web2 <- web2[-doublon,]
+```
+
+Vérifions également si il existe des id_web dans erp_li qui ne sont pas dans web2 :
+
+```{r echo=TRUE}
+id_web1 <- unique(erp_li$id_web)
+id_web2 <- unique(web2$id_web) 
+id_web3 <- intersect(id_web2, id_web1)
+```
+
+*Il y a 20 id_web qui sont présents dans erp_li mais pas dans web2.*
+
+Sélectionnons maintenant dans web2 les id_web présents dans id_web3 (*donc les éléments communs à erp_li et web2*).
+
+```{r echo=TRUE}
+web2 <- web2[is.element (web2$id_web, id_web3),]
+```
+
+Nous pouvons maintenant joindre nos dataframes erp_li et web2.
+
+```{r echo=TRUE}
+web_erp_li <- merge(erp_li, web2[(web2$id_web != ""),], all=T)
+```
+
+*Nous avons spécifié que nous ne voulions prendre que les lignes de web2 contenant un id_web.*
+
+#### Calcul du chiffre d'affaires par produit
+
+Supprimons une nouvelle fois les lignes n'ayant pas d'id_web
+
+```{r echo=TRUE}
+web_erp_libis <- web_erp_li[web_erp_li$id_web != "",]
+```
+
+Vérifions maintenant si nous avons des doublons au niveau des product_id :
+
+```{r echo=TRUE}
+sum(duplicated(web_erp_libis$product_id))
+```
+
+*Aucun doublon ✓*
+
+Sélectionnons puis extrayons toutes les lignes sans post_type :
+
+```{r echo=TRUE}
+na <- which(is.na(web_erp_libis$post_type)) 
+web_erp_libis <- web_erp_libis[-na,]
+```
+
+Vérifions la structure du dataframe obtenu :
+
+```{r echo=TRUE}
+str(web_erp_libis)
+```
+
+Calculons le CA généré par produit
+
+```{r echo=TRUE}
+chiffre_affaires <- web_erp_libis$price * web_erp_libis$total_sales
+```
+
+*Les résultats sont stockés dans une liste.*
+
+Joignons la liste de valeurs que nous avons obtenue à notre dataframe global :
+
+```{r echo=TRUE}
+web_erp_libis <- data.frame(web_erp_libis, chiffre_affaires)
+```
+
+#### Calcul du CA total
+
+Vérifions pour commencer la structure de la liste chiffre_affaires que nous venons de créer :
+
+```{r echo=TRUE}
+str(chiffre_affaires)
+```
+
+*Nous avons bien des données de type numérique ✓*
+
+Vérifions maintenant si nous avons des données manquantes :
+
+```{r echo=TRUE}
+is.na(web_erp_libis$chiffre_affaires)
+na2 <- which(is.na(web_erp_li$chiffre_affaires))
+```
+
+*Pas de données manquantes ✓*
+
+Additionnons le tout :
+
+```{r echo=TRUE}
+ca_total <- sum(web_erp_libis$chiffre_affaires)
+```
+
+*Ce qui nous donne un CA global de ...*
+
+```{r echo=TRUE}
+ca_total
+```
+
+#### Détection des éventuelles valeurs aberrantes
+
+Jetons un oeil aux statistiques relatives aux prix et aux ventes :
+
+```{r echo=TRUE}
+summary(web_erp_libis$price)
+summary(web_erp_libis$total_sales)
+```
+
+Calculons Q3-Q1 (écart interquartile) :
+
+```{r echo=TRUE}
+IQR(web_erp_libis$price)
+```
+
+Multiplions le maintenant par 1.5 :
+
+```{r echo=TRUE}
+1.5*IQR(web_erp_libis$price)
+```
+
+Voyons si nous avons des valeurs aberrantes :
+
+```{r echo=TRUE}
+boxplot.stats(web_erp_libis$price)$out
+```
+
+*Lesdites valeurs aberrantes (sont considérées comme aberrantes toutes les valeurs supérieures ou égales à 84.2825 soit Q3+1.5\*IQR)*
+
+La position des valeurs aberrantes :
+
+```{r echo=TRUE}
+which(web_erp_libis$price %in% boxplot.stats(web_erp_libis$price)$out)
+```
+
+*Représentons les graphiquement pour une meilleure compréhension en utilisant un diagramme en boîte à moustache :*
+
+```{r boxplot, echo=TRUE, fig.height=3, fig.width=4, message=FALSE}
+boxplot(web_erp_libis$price)
+```
+
+*Représentons également les ventes sous forme de grapghique en nuage de points :*
+
+```{r plot, fig.width=4, fig.height=3, message=FALSE}
+plot(x = web_erp_libis$price, y = web_erp_libis$total_sales, xlab = "Prix", ylab = "Nombre de ventes", xlim = c(5.20, 225.00), ylim = c(0, 96.000), main = "Nombre de ventes de bouteilles en fonction du prix")
+```
